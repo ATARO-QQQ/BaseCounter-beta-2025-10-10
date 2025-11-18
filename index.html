@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <title>QR投票</title>
+  <style>
+    body { font-family: system-ui, -apple-system, "Hiragino Kaku Gothic Pro","Noto Sans JP", "Segoe UI", Roboto, sans-serif; margin: 24px; }
+    .card { max-width: 640px; margin: 0 auto; padding: 18px; border-radius: 12px; box-shadow: 0 4px 18px rgba(0,0,0,0.08); }
+    h1 { font-size: 20px; margin-bottom: 12px; }
+    .notice { margin: 14px 0; padding: 12px; border-radius: 8px; background:#f6f8fa; }
+    button { padding: 10px 16px; border-radius: 8px; border: none; font-size: 16px; cursor: pointer; }
+    .primary { background: #0b79ff; color: #fff; }
+    .danger { background: #ff4d4f; color: #fff; }
+    .muted { color: #666; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="card" id="app">
+    <h1>QR投票</h1>
+    <div id="content">
+      <p class="muted">読み込んだQRを確認しています…</p>
+    </div>
+  </div>
+
+<script>
+/*  --- 設定: 必ずここを実際の値に置き換えてください --- */
+/* Google Apps Script の Web アプリ実行 URL（デプロイ時に得られる URL） */
+const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwfZcn9of_eWh0WJ5ClTmoRTf876ODxyI0Rxmnu7QHGInQV3X8t2Lchb6QiEykQ4-Gv/exec"; // ← 置換
+/* 送信チェック用トークン（GAS側と一致させること） */
+const ALLOWED_TOKEN = "marakko9"; // ← 置換
+/* ------------------------------------------------- */
+
+function q(sel){return document.querySelector(sel);}
+
+function getParam(name){
+  const u = new URL(location.href);
+  return u.searchParams.get(name);
+}
+
+function showError(msg){
+  const c = q('#content');
+  c.innerHTML = `<div class="notice"><p style="color:#a00000">${msg}</p></div>
+                 <div><button onclick="location.reload()" class="danger">再読み込み</button></div>`;
+}
+
+function showThanks(){
+  const c = q('#content');
+  c.innerHTML = `<div style="text-align:center; padding:28px; font-size:18px;">ご協力ありがとうございました!</div>`;
+}
+
+async function doVote(id){
+  // localStorage チェック（同一ブラウザ/同一デプロイ内で1回のみ）
+  if (localStorage.getItem('hasVoted') === 'true') {
+    showError('この端末では既に投票済みです。二回目の投票はできません。');
+    return;
+  }
+
+  // POST to GAS
+  try {
+    const resp = await fetch(GAS_WEB_APP_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: id, token: ALLOWED_TOKEN })
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data.success) {
+      // GAS からのエラーメッセージを表示
+      showError('投票に失敗しました: ' + (data && data.message ? data.message : '不明なエラー'));
+      return;
+    }
+    // 成功
+    localStorage.setItem('hasVoted','true');
+    showThanks();
+  } catch (err) {
+    console.error(err);
+    showError('通信エラーが発生しました。ネットワークを確認してください。');
+  }
+}
+
+/* 初期レンダリング */
+(function init(){
+  const id = getParam('id');
+  const c = q('#content');
+
+  if (!id) {
+    c.innerHTML = `<div class="notice">QRにIDが含まれていません。正しいQRを読み込んでください。</div>`;
+    return;
+  }
+
+  // ID の形式チェック（0001 〜 4000。4桁の0埋め）
+  if (!/^\d{4}$/.test(id) || parseInt(id,10) < 1 || parseInt(id,10) > 4000) {
+    c.innerHTML = `<div class="notice">無効なIDです: ${id}</div>`;
+    return;
+  }
+
+  // 投票確認 UI
+  c.innerHTML = `
+    <div class="notice">本当に投票しますか?<br><span class="muted">ブース番号: ${id}</span></div>
+    <div style="display:flex; gap:10px;">
+      <button id="btnVote" class="primary">投票する</button>
+      <button id="btnCancel" class="">キャンセル</button>
+    </div>
+    <p class="muted" style="margin-top:12px;">この端末では一度だけ投票できます。二度目はエラーになります。</p>
+  `;
+  q('#btnCancel').addEventListener('click', ()=> { c.innerHTML = `<div class="notice">操作がキャンセルされました。</div>`; });
+  q('#btnVote').addEventListener('click', ()=> {
+    // クリックしたらボタンを無効化して投票処理
+    q('#btnVote').disabled = true;
+    q('#btnVote').textContent = '送信中…';
+    doVote(id);
+  });
+})();
+</script>
+</body>
+</html>
